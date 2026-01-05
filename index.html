@@ -75,10 +75,11 @@
 <body>
 
     <div class="container">
+        <h1>Paul's Letterboxd</h1>
         <div class="stats-bar">
-            <div class="stat-box"><div class="stat-label">Week</div><h2 id="w-val">0</h2></div>
-            <div class="stat-box"><div class="stat-label">Month</div><h2 id="m-val">0</h2></div>
-            <div class="stat-box"><div class="stat-label">Year</div><h2 id="y-val">0</h2></div>
+            <div class="stat-box"><div class="stat-label">Watched this Week</div><h2 id="w-val">0</h2></div>
+            <div class="stat-box"><div class="stat-label">Watched this Month</div><h2 id="m-val">0</h2></div>
+            <div class="stat-box"><div class="stat-label">Watched this Year</div><h2 id="y-val">0</h2></div>
             <div class="stat-box"><div class="stat-label">All Time Total</div><h2 id="t-val">0</h2></div>
         </div>
 
@@ -120,11 +121,13 @@
             if (container) container.scrollLeft = container.scrollWidth;
         }
 
-        function updateDetailView(dateObj) {
-            currentViewDate = new Date(dateObj);
-            const iso = dateObj.toISOString().split('T')[0];
+        function updateDetailView(dateObj, isoOverride = null) {
+            // Use ISO override if provided to avoid timezone issues
+            const iso = isoOverride || dateObj.toISOString().split('T')[0];
+            currentViewDate = new Date(iso + 'T12:00:00'); // Use noon to avoid timezone issues
+            
             const dayMovies = allMovies.filter(m => m.iso === iso);
-            document.getElementById('view-date').innerText = formatDate(dateObj);
+            document.getElementById('view-date').innerText = formatDate(currentViewDate);
             const list = document.getElementById('day-list');
             
             if (dayMovies.length > 0) {
@@ -144,9 +147,41 @@
         }
 
         function navigateDay(direction) {
-            const newDate = new Date(currentViewDate);
-            newDate.setDate(newDate.getDate() + direction);
-            updateDetailView(newDate);
+            // Get all unique dates that have movies, sorted
+            const datesWithMovies = [...new Set(allMovies.map(m => m.iso))].sort();
+            
+            if (datesWithMovies.length === 0) return;
+            
+            // Find current date in the list
+            const currentIso = currentViewDate.toISOString().split('T')[0];
+            const currentIndex = datesWithMovies.indexOf(currentIso);
+            
+            let targetIndex;
+            if (currentIndex === -1) {
+                // Current date has no movies, find closest date with movies
+                if (direction === 1) {
+                    // Find next date with movies
+                    targetIndex = datesWithMovies.findIndex(d => d > currentIso);
+                    if (targetIndex === -1) targetIndex = datesWithMovies.length - 1; // Wrap to last
+                } else {
+                    // Find previous date with movies
+                    targetIndex = datesWithMovies.slice().reverse().findIndex(d => d < currentIso);
+                    if (targetIndex === -1) targetIndex = 0; // Wrap to first
+                    else targetIndex = datesWithMovies.length - 1 - targetIndex;
+                }
+            } else {
+                // Current date has movies, move to next/prev date with movies
+                targetIndex = currentIndex + direction;
+                
+                // Handle boundaries
+                if (targetIndex < 0) targetIndex = 0;
+                if (targetIndex >= datesWithMovies.length) targetIndex = datesWithMovies.length - 1;
+            }
+            
+            // Pass the ISO string directly to avoid timezone conversion issues
+            const targetIso = datesWithMovies[targetIndex];
+            const targetDate = new Date(targetIso + 'T12:00:00');
+            updateDetailView(targetDate, targetIso);
         }
 
         async function init() {
@@ -164,9 +199,13 @@
 
                 items.forEach(item => {
                     const rawTitle = item.querySelector("title").textContent;
-                    const pubDate = new Date(item.querySelector("pubDate").textContent);
-                    const iso = pubDate.toISOString().split('T')[0];
-                    if (pubDate < oldestDate) oldestDate = pubDate;
+                    
+                    // Use watchedDate instead of pubDate
+                    const watchedDateNode = Array.from(item.childNodes).find(n => n.nodeName.includes('watchedDate'));
+                    const watchedDate = watchedDateNode ? new Date(watchedDateNode.textContent) : new Date(item.querySelector("pubDate").textContent);
+                    
+                    const iso = watchedDate.toISOString().split('T')[0];
+                    if (watchedDate < oldestDate) oldestDate = watchedDate;
 
                     const posterNode = Array.from(item.childNodes).find(n => n.nodeName.includes('poster'));
                     const poster = posterNode ? posterNode.textContent : "";
@@ -176,15 +215,15 @@
                     // Extract rating (everything after "YEAR - ")
                     const ratingMatch = rawTitle.match(/\d{4}\s*-\s*(.+)$/);
                     const stars = ratingMatch ? ratingMatch[1].trim() : "";
-                    const cleanTitle = rawTitle.split(',')[0];
-
-                    allMovies.push({ title: cleanTitle, rating: stars, iso, poster, review, date: pubDate });
+                    const cleanTitle = rawTitle.split(/, \s*(?=\d{4})/)[0];
+                    
+                    allMovies.push({ title: cleanTitle, rating: stars, iso, poster, review, date: watchedDate });
                     dailyCounts[iso] = (dailyCounts[iso] || 0) + 1;
 
-                    const diffDays = (now - pubDate) / 86400000;
+                    const diffDays = (now - watchedDate) / 86400000;
                     if (diffDays <= 7) stats.w++;
-                    if (pubDate.getMonth() === now.getMonth() && pubDate.getFullYear() === now.getFullYear()) stats.m++;
-                    if (pubDate.getFullYear() === now.getFullYear()) stats.y++;
+                    if (watchedDate.getMonth() === now.getMonth() && watchedDate.getFullYear() === now.getFullYear()) stats.m++;
+                    if (watchedDate.getFullYear() === now.getFullYear()) stats.y++;
                 });
 
                 allMovies.sort((a, b) => b.date - a.date);
@@ -218,8 +257,9 @@
         }
 
         function renderHeatmap(data, start, now) {
-            const endOfYear = new Date(now.getFullYear(), 11, 31);
-            const totalMonths = (endOfYear.getFullYear() - start.getFullYear()) * 12 + (endOfYear.getMonth() - start.getMonth()) + 1;
+            const endDate = new Date(now);
+            endDate.setMonth(endDate.getMonth() + 3); // Show 3 months ahead
+            const totalMonths = (endDate.getFullYear() - start.getFullYear()) * 12 + (endDate.getMonth() - start.getMonth()) + 1;
             const cal = new CalHeatmap();
             
             const observer = new ResizeObserver(() => scrollToRight());
@@ -230,7 +270,21 @@
                 data: { source: data, x: 'date', y: 'value' },
                 range: totalMonths, 
                 date: { start: new Date(start.getFullYear(), start.getMonth(), 1) },
-                domain: { type: 'month', gutter: 15 }, 
+                domain: { 
+                    type: 'month', 
+                    gutter: 15,
+                    label: { 
+                        text: function(timestamp) {
+                            const date = new Date(timestamp);
+                            const month = date.toLocaleString('default', { month: 'short' });
+                            // Show year for January
+                            if (date.getMonth() === 0) {
+                                return month + " '" + date.getFullYear().toString().slice(-2);
+                            }
+                            return month;
+                        }
+                    }
+                }, 
                 subDomain: { type: 'day', radius: 2, gutter: 4, width: 12, height: 12 },
                 scale: { 
                     color: { 
