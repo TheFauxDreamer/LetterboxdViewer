@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Letterboxd Archive Dashboard</title>
+    
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://unpkg.com/cal-heatmap/dist/cal-heatmap.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/cal-heatmap/dist/cal-heatmap.css">
+    
+    <style>
+        :root {
+            --bg: #14181c;
+            --card-bg: #1b2228;
+            --border: #2c3440;
+            --text-main: #9ab;
+            --text-bright: #fff;
+            --lb-green: #00e054;
+            --container-width: 1000px;
+        }
+
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text-main); margin: 0; padding: 20px; }
+        .container { max-width: var(--container-width); margin: auto; display: flex; flex-direction: column; }
+
+        .stats-bar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 25px; }
+        .stat-box { background: var(--card-bg); padding: 15px; border-radius: 6px; text-align: center; border: 1px solid var(--border); }
+        .stat-box h2 { color: var(--text-bright); margin: 5px 0 0 0; font-size: 24px; }
+        .stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+
+        #heatmap-scroll-container { 
+            background: var(--card-bg);
+            padding: 25px; 
+            border-radius: 8px; 
+            margin-bottom: 30px; 
+            overflow-x: auto; 
+            border: 1px solid var(--border);
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .ch-domain-text { fill: var(--text-main) !important; font-size: 12px !important; }
+        rect.ch-subdomain-bg { fill: #242c34; }
+        rect.ch-subdomain-bg[data-value] { fill: inherit; }
+
+        .main-layout { display: grid; grid-template-columns: 320px 1fr; gap: 30px; }
+        h3 { color: var(--text-bright); border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-top: 0; }
+
+        .movie-row { display: flex; gap: 12px; background: var(--card-bg); border-radius: 4px; margin-bottom: 12px; overflow: hidden; border: 1px solid var(--border); align-items: flex-start; }
+        .movie-row img { width: 60px; height: 90px; object-fit: cover; display: block; background: #2c3440; flex-shrink: 0; }
+        .movie-info { padding: 10px 10px 10px 0; flex-grow: 1; }
+        .movie-info h4 { margin: 0; color: var(--text-bright); font-size: 14px; line-height: 1.3; }
+        .stars { color: var(--lb-green); font-size: 16px; margin-top: 4px; display: block; }
+
+        .review-box { 
+            font-size: 13px; color: #cbd5e0; line-height: 1.6; font-style: italic; 
+            border-left: 2px solid var(--lb-green); padding-left: 12px; margin-top: 10px;
+            white-space: pre-wrap; word-wrap: break-word;
+        }
+        
+        .detail-column { background: var(--card-bg); padding: 20px; border-radius: 8px; border: 1px solid var(--border); min-height: 400px; }
+        .detail-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-top: 0; margin-bottom: 20px; }
+        .detail-header h3 { border: none; padding: 0; margin: 0; }
+        .day-nav { display: flex; gap: 8px; }
+        .day-nav button { background: var(--card-bg); border: 1px solid var(--border); color: var(--text-main); width: 32px; height: 32px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: all 0.2s; }
+        .day-nav button:hover { background: var(--border); color: var(--text-bright); }
+        .detail-date { color: var(--lb-green); font-weight: bold; }
+        .empty-msg { color: #678; font-style: italic; margin-top: 40px; text-align: center; font-size: 1.1rem; }
+
+        #heatmap-scroll-container::-webkit-scrollbar { height: 8px; }
+        #heatmap-scroll-container::-webkit-scrollbar-track { background: var(--bg); }
+        #heatmap-scroll-container::-webkit-scrollbar-thumb { background: #456; border-radius: 10px; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="stats-bar">
+            <div class="stat-box"><div class="stat-label">Week</div><h2 id="w-val">0</h2></div>
+            <div class="stat-box"><div class="stat-label">Month</div><h2 id="m-val">0</h2></div>
+            <div class="stat-box"><div class="stat-label">Year</div><h2 id="y-val">0</h2></div>
+            <div class="stat-box"><div class="stat-label">All Time Total</div><h2 id="t-val">0</h2></div>
+        </div>
+
+        <div id="heatmap-scroll-container">
+            <div id="cal-heatmap"></div>
+        </div>
+
+        <div class="main-layout">
+            <div class="recent-column">
+                <h3>Recent Watches</h3>
+                <div id="recent-posters"></div>
+            </div>
+            <div class="detail-column">
+                <div class="detail-header">
+                    <h3>Activity on <span id="view-date" class="detail-date">...</span></h3>
+                    <div class="day-nav">
+                        <button id="prev-day" title="Previous day">‹</button>
+                        <button id="next-day" title="Next day">›</button>
+                    </div>
+                </div>
+                <div id="day-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let allMovies = [];
+        let currentViewDate = new Date();
+
+        function formatDate(dateObj) {
+            const d = String(dateObj.getDate()).padStart(2, '0');
+            const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const y = dateObj.getFullYear();
+            return `${d}/${m}/${y}`;
+        }
+
+        function scrollToRight() {
+            const container = document.getElementById('heatmap-scroll-container');
+            if (container) container.scrollLeft = container.scrollWidth;
+        }
+
+        function updateDetailView(dateObj) {
+            currentViewDate = new Date(dateObj);
+            const iso = dateObj.toISOString().split('T')[0];
+            const dayMovies = allMovies.filter(m => m.iso === iso);
+            document.getElementById('view-date').innerText = formatDate(dateObj);
+            const list = document.getElementById('day-list');
+            
+            if (dayMovies.length > 0) {
+                list.innerHTML = dayMovies.map(m => `
+                    <div class="movie-row" style="background:transparent; border:none; border-bottom:1px solid #333; border-radius:0; margin-bottom:20px; padding-bottom:10px;">
+                        <img src="${m.poster}" onerror="this.src='https://via.placeholder.com/60x90?text=?'" style="border-radius:4px; border:1px solid var(--border);">
+                        <div class="movie-info">
+                            <div style="display:flex; justify-content:space-between;">
+                                <strong>${m.title}</strong><span class="stars">${m.rating}</span>
+                            </div>
+                            <div class="review-box">${m.review || 'No review logged.'}</div>
+                        </div>
+                    </div>`).join('');
+            } else {
+                list.innerHTML = `<div class="empty-msg">No movies have been watched & reviewed today. <br><br> Yet...</div>`;
+            }
+        }
+
+        function navigateDay(direction) {
+            const newDate = new Date(currentViewDate);
+            newDate.setDate(newDate.getDate() + direction);
+            updateDetailView(newDate);
+        }
+
+        async function init() {
+            try {
+                const resp = await fetch('my_history.xml');
+                const text = await resp.text();
+                const xml = new window.DOMParser().parseFromString(text, "text/xml");
+                const items = xml.querySelectorAll("item");
+                const now = new Date();
+                let dailyCounts = {};
+                let stats = { w: 0, m: 0, y: 0 };
+                let oldestDate = new Date();
+
+                allMovies = [];
+
+                items.forEach(item => {
+                    const rawTitle = item.querySelector("title").textContent;
+                    const pubDate = new Date(item.querySelector("pubDate").textContent);
+                    const iso = pubDate.toISOString().split('T')[0];
+                    if (pubDate < oldestDate) oldestDate = pubDate;
+
+                    const posterNode = Array.from(item.childNodes).find(n => n.nodeName.includes('poster'));
+                    const poster = posterNode ? posterNode.textContent : "";
+                    const reviewNode = Array.from(item.childNodes).find(n => n.nodeName.includes('review'));
+                    const review = reviewNode ? reviewNode.textContent : "";
+                    
+                    // Extract rating (everything after "YEAR - ")
+                    const ratingMatch = rawTitle.match(/\d{4}\s*-\s*(.+)$/);
+                    const stars = ratingMatch ? ratingMatch[1].trim() : "";
+                    const cleanTitle = rawTitle.split(',')[0];
+
+                    allMovies.push({ title: cleanTitle, rating: stars, iso, poster, review, date: pubDate });
+                    dailyCounts[iso] = (dailyCounts[iso] || 0) + 1;
+
+                    const diffDays = (now - pubDate) / 86400000;
+                    if (diffDays <= 7) stats.w++;
+                    if (pubDate.getMonth() === now.getMonth() && pubDate.getFullYear() === now.getFullYear()) stats.m++;
+                    if (pubDate.getFullYear() === now.getFullYear()) stats.y++;
+                });
+
+                allMovies.sort((a, b) => b.date - a.date);
+
+                document.getElementById('w-val').innerText = stats.w;
+                document.getElementById('m-val').innerText = stats.m;
+                document.getElementById('y-val').innerText = stats.y;
+                document.getElementById('t-val').innerText = allMovies.length;
+
+                renderRecent(allMovies.slice(0, 3));
+                
+                const heatmapData = Object.keys(dailyCounts).map(date => ({
+                    date: date,
+                    value: dailyCounts[date]
+                }));
+
+                renderHeatmap(heatmapData, oldestDate, now);
+                updateDetailView(now);
+            } catch (err) { console.error(err); }
+        }
+
+        function renderRecent(movies) {
+            document.getElementById('recent-posters').innerHTML = movies.map(m => `
+                <div class="movie-row">
+                    <img src="${m.poster}" onerror="this.src='https://via.placeholder.com/60x90?text=?'">
+                    <div class="movie-info">
+                        <h4>${m.title}</h4><span class="stars">${m.rating}</span>
+                        <small style="font-size:10px; color:#678">${formatDate(m.date)}</small>
+                    </div>
+                </div>`).join('');
+        }
+
+        function renderHeatmap(data, start, now) {
+            const endOfYear = new Date(now.getFullYear(), 11, 31);
+            const totalMonths = (endOfYear.getFullYear() - start.getFullYear()) * 12 + (endOfYear.getMonth() - start.getMonth()) + 1;
+            const cal = new CalHeatmap();
+            
+            const observer = new ResizeObserver(() => scrollToRight());
+            observer.observe(document.getElementById('heatmap-scroll-container'));
+
+            cal.paint({
+                itemSelector: '#cal-heatmap',
+                data: { source: data, x: 'date', y: 'value' },
+                range: totalMonths, 
+                date: { start: new Date(start.getFullYear(), start.getMonth(), 1) },
+                domain: { type: 'month', gutter: 15 }, 
+                subDomain: { type: 'day', radius: 2, gutter: 4, width: 12, height: 12 },
+                scale: { 
+                    color: { 
+                        type: 'threshold', 
+                        range: ['#242c34', '#1e4620', '#2ea043', '#39d353', '#00e054'],
+                        domain: [0.5, 1.5, 2.5, 3.5] 
+                    } 
+                }
+            });
+
+            cal.on('click', (event, timestamp) => {
+                updateDetailView(new Date(timestamp));
+            });
+        }
+
+        window.onload = () => {
+            setTimeout(scrollToRight, 600);
+            document.getElementById('prev-day').addEventListener('click', () => navigateDay(-1));
+            document.getElementById('next-day').addEventListener('click', () => navigateDay(1));
+        };
+        init();
+    </script>
+</body>
+    
+</html>
