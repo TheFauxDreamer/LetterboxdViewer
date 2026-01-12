@@ -1,0 +1,47 @@
+name: Sync History to FauxProjects
+
+on:
+  push:
+    branches:
+      - main  # Or whichever branch in LetterboxdViewer contains the file
+    paths:
+      - 'my_history.xml' # Only triggers when this specific file changes
+
+jobs:
+  copy-file:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout LetterboxdViewer (Source)
+        uses: actions/checkout@v4
+        with:
+          path: source_repo
+
+      - name: Checkout FauxProjects (Destination)
+        uses: actions/checkout@v4
+        with:
+          repository: 'TheFauxDreamer/FauxProjects'
+          token: ${{ secrets.MY_PERSONAL_ACCESS_TOKEN }}
+          ref: 'ldbViewer' # Targets the specific branch
+          path: dest_repo
+
+      - name: Copy and Push Changes
+        run: |
+          # Copy the file from source to destination folder
+          cp source_repo/my_history.xml dest_repo/my_history.xml
+          
+          cd dest_repo
+          
+          # Setup git identity
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Stage, commit, and push
+          git add my_history.xml
+          
+          # Only commit if there are actual changes to the content
+          if git diff --staged --quiet; then
+            echo "No changes detected. Skipping."
+          else
+            git commit -m "Sync: Updated my_history.xml from LetterboxdViewer"
+            git push origin ldbViewer
+          fi
