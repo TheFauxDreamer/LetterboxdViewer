@@ -1,4 +1,4 @@
-name: Sync History to FauxProjects
+name: Sync History to FauxProjs
 
 on:
   push:
@@ -17,10 +17,10 @@ jobs:
         with:
           path: source_repo
 
-      - name: Checkout FauxProjects (Destination)
+      - name: Checkout FauxProjs (Destination)
         uses: actions/checkout@v4
         with:
-          repository: 'TheFauxDreamer/FauxProjects'
+          repository: 'TheFauxDreamer/FauxProjs'
           token: ${{ secrets.MY_PERSONAL_ACCESS_TOKEN }}
           ref: 'ldbViewer' # Targets the specific branch
           path: dest_repo
