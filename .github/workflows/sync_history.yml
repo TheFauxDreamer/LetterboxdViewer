@@ -6,6 +6,7 @@ on:
       - main  # Or whichever branch in LetterboxdViewer contains the file
     paths:
       - 'my_history.xml' # Only triggers when this specific file changes
+  workflow_dispatch:
 
 jobs:
   copy-file:
