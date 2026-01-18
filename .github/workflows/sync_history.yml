@@ -3,11 +3,11 @@ name: Sync History to FauxProjs
 on:
   push:
     branches:
-      - main  # Or whichever branch in LetterboxdViewer contains the file
+      - main
     paths:
-      - 'my_history.xml' # Only triggers when this specific file changes
-    schedule:
-      - cron: '15 22 * * *'
+      - 'my_history.xml'
+  schedule:
+    - cron: '15 22 * * *'
   workflow_dispatch:
 
 jobs:
