@@ -7,7 +7,8 @@ def update_history(username):
     url = f"https://letterboxd.com/{username}/rss/"
     local_file = "my_history.xml"
     
-    with urllib.request.urlopen(url) as response:
+    req = urllib.request.Request(url, headers={"User-Agent": "LetterboxdViewer/1.0"})
+    with urllib.request.urlopen(req) as response:
         live_xml = ET.fromstring(response.read())
     
     live_items = live_xml.findall(".//item")
