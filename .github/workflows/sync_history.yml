@@ -7,8 +7,8 @@ on:
     paths:
       - 'my_history.xml'
   schedule:
-    - cron: '15 22 * * *'
-  workflow_dispatch:
+    - cron: '0 7 * * 1' # Every Monday at 6am UTC
+  workflow_dispatch: # Allow manual trigger
 
 jobs:
   copy-file:
